@@ -1,0 +1,30 @@
+/* Reset + shell tokens. Deliberately small: the sections are self-contained
+   and must not inherit typography or color decisions from here. */
+
+:root {
+  --shell-bg: #020617;
+  --shell-nav: rgba(2, 6, 23, 0.85);
+  --shell-line: #1e293b;
+  --shell-ink: #f1f5f9;
+  --shell-muted: #94a3b8;
+  --shell-hover: rgba(148, 163, 184, 0.08);
+  --shell-active: #0f172a;
+  --shell-focus: #38bdf8;
+
+  color-scheme: dark;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--shell-bg);
+  color: var(--shell-ink);
+}
+
+#root { min-height: 100%; }
