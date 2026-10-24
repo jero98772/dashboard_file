@@ -30,8 +30,8 @@ npm run lint
 
 | File | What is in it |
 |---|---|
-| `data/food_days.csv` | one row per day, `1`/`0` per real-food habit |
-| `data/food_settings.csv` | identity sentence, start date, custom cues, checked setup steps |
+| `data/food_meals.csv` | every moment of wanting food: hungry/anxious, ate or chose an alternative, sat down, waited 30 s, small portion, distractions, note |
+| `data/food_settings.csv` | my list of satisfying alternatives (`\|`-separated) |
 | `data/body_entries.csv` | date, steps, sword/push-up sets, stretch breaks, weight, note |
 | `data/body_settings.csv` | goal weight, daily point goal, identity, habit stack |
 | `data/freedom_days.csv` | date → `clean` or `relapse` |
@@ -46,7 +46,8 @@ A missing file just means that table is empty, so you can delete one to reset it
 
 Scoring is separate from the views so the Overview can score the same rows:
 
-- `src/lib/food-rules.js` — habits, streak tiers (×1 → ×2), levels, `compute()`
+- `src/lib/food-rules.js` — the mindful-eating rules, review checks, distractions,
+  7-day shares (`mealStats`) and the mindful-days streak
 - `src/lib/body-rules.js` — points per set, step multiplier, chain, streak, the
   fitted weight trend, the rate of loss per day/week/month in kg and in percent
   with weigh-ins grouped by day, week or month, progress towards the goal weight

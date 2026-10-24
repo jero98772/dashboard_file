@@ -146,3 +146,65 @@ export function compute(state, today) {
   }
   return { perDay, totals, start };
 }
+
+/* ---------- mindful eating log (separate from points) ---------- */
+
+export const MINDFUL_RULES = [
+  { id: 'ask', text: 'Am I hungry or anxious? Wait 10 seconds.' },
+  { id: 'small', text: 'Small portions, small plate, eat slowly in small bites.' },
+  { id: 'alt', text: 'Anxious? Pick a satisfying alternative instead.' },
+  { id: 'observe', text: 'Take 30 seconds to observe how I feel.' },
+  { id: 'focus', text: 'Eat without distractions.' },
+  { id: 'sit', text: 'Eat while sitting down.' },
+];
+
+export const REVIEW_CHECKS = [
+  { id: 'sitting', q: 'Did I eat sitting down?', label: 'Sitting' },
+  { id: 'waited', q: 'Did I wait 30 seconds?', label: 'Waited' },
+  { id: 'small', q: 'Did I eat a small portion?', label: 'Small portion' },
+];
+
+export const DISTRACTIONS = [
+  { id: 'phone', label: 'Phone' },
+  { id: 'video', label: 'Video' },
+  { id: 'study', label: 'Studying' },
+];
+
+export const DEFAULT_ALTERNATIVES = ['Go for a walk', 'Study personal interests'];
+
+/** `alternatives` is stored as one `|`-separated setting. */
+export function alternativesFrom(settings) {
+  const raw = settings.alternatives;
+  if (!raw) return DEFAULT_ALTERNATIVES;
+  return raw.split('|').map((s) => s.trim()).filter(Boolean);
+}
+
+export const distractionsOf = (row) => (row.distractions || '').split(' ').filter(Boolean);
+
+/** A meal is mindful when every review check passed and nothing distracted me. */
+export const isMindful = (row) =>
+  REVIEW_CHECKS.every((c) => isSet(row[c.id])) && distractionsOf(row).length === 0;
+
+/** Shares (0..100, or null with no meals) over the last `days` days, today included. */
+export function mealStats(rows, today, days = 7) {
+  const from = addDays(today, -(days - 1));
+  const inWindow = rows.filter((r) => r.date >= from && r.date <= today);
+  const meals = inWindow.filter((r) => r.outcome === 'ate');
+  const pct = (n) => (meals.length ? Math.round((n / meals.length) * 100) : null);
+  const share = {};
+  for (const c of REVIEW_CHECKS) share[c.id] = pct(meals.filter((r) => isSet(r[c.id])).length);
+  share.focused = pct(meals.filter((r) => distractionsOf(r).length === 0).length);
+
+  const counts = {};
+  for (const r of meals) for (const d of distractionsOf(r)) counts[d] = (counts[d] || 0) + 1;
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+
+  return {
+    meals: meals.length,
+    mindful: pct(meals.filter(isMindful).length),
+    alternatives: inWindow.filter((r) => r.outcome === 'alternative').length,
+    anxious: inWindow.filter((r) => r.feeling === 'anxious').length,
+    share,
+    topDistraction: top ? { id: top[0], count: top[1] } : null,
+  };
+}

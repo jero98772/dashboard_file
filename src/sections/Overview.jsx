@@ -27,7 +27,7 @@ import {
   withTrend,
 } from '../lib/body-rules.js';
 import { addDays, todayKey } from '../lib/dates.js';
-import { compute, levelFor, rowsToDone, HABITS } from '../lib/food-rules.js';
+import { mealStats } from '../lib/food-rules.js';
 import {
   computeStreak,
   dayCongrats,
@@ -70,8 +70,7 @@ const TREND = '#94a3b8';
 const DAYS = 14;
 
 export default function Overview({ onOpen }) {
-  const [foodRows] = useTable('food_days');
-  const [foodSettings] = useSettings('food_settings');
+  const [foodRows] = useTable('food_meals');
   const [bodyRows, setBodyRows] = useTable('body_entries');
   const [bodySettings] = useSettings('body_settings');
   const [freedomDays] = useTable('freedom_days');
@@ -82,18 +81,7 @@ export default function Overview({ onOpen }) {
   const goalWeight = Number(bodySettings.goalWeight) || 70;
 
   /* ---- food ---- */
-  const food = useMemo(() => {
-    const done = rowsToDone(foodRows);
-    const startedOn = foodSettings.startedOn || Object.keys(done).sort()[0] || today;
-    const { perDay, totals } = compute({ startedOn, done }, today);
-    return {
-      perDay,
-      totals,
-      votesToday: perDay[today]?.n ?? 0,
-      level: levelFor(totals.points),
-      streak: perDay[today]?.streakAfter ?? 0,
-    };
-  }, [foodRows, foodSettings.startedOn, today]);
+  const food = useMemo(() => mealStats(foodRows, today, 7), [foodRows, today]);
 
   /* ---- body ---- */
   const body = useMemo(() => {
@@ -157,12 +145,11 @@ export default function Overview({ onOpen }) {
       out.push({
         date,
         label: shortLabel(date),
-        food: food.perDay[date]?.points ?? 0,
         body: byDate.get(date) ?? 0,
       });
     }
     return out;
-  }, [body.entries, food.perDay, today]);
+  }, [body.entries, today]);
 
   /**
    * One row per calendar day for the freedom strip: its status, which streak
@@ -231,7 +218,7 @@ export default function Overview({ onOpen }) {
   }
 
   const hasWeight = weightSeries.length > 1;
-  const hasPoints = pointsSeries.some((d) => d.food > 0 || d.body > 0);
+  const hasPoints = pointsSeries.some((d) => d.body > 0);
 
   return (
     <div className="ov-root">
@@ -271,10 +258,10 @@ export default function Overview({ onOpen }) {
             accent={GOAL}
           />
           <Tile
-            label="real-food votes today"
-            value={`${food.votesToday}`}
-            unit={`/ ${HABITS.length}`}
-            foot={food.streak > 0 ? `${food.streak}-day perfect chain` : 'chain starts with one check'}
+            label="mindful meals, last 7 days"
+            value={food.mindful == null ? '—' : `${food.mindful}`}
+            unit={food.mindful == null ? '' : '%'}
+            foot={food.meals ? `${food.meals} meals · ${food.alternatives} alternatives chosen` : 'log a meal to start'}
             accent={FOOD}
           />
           <Tile
@@ -347,7 +334,7 @@ export default function Overview({ onOpen }) {
         <section className="ov-levels">
           <LevelRow
             name="Food"
-            detail={`${food.level.name} · ${food.totals.points.toLocaleString('en-US')} points`}
+            detail={`${food.meals} meals this week · ${food.alternatives} alternatives`}
             color={FOOD}
             onOpen={() => onOpen('food')}
           />
@@ -461,7 +448,6 @@ export default function Overview({ onOpen }) {
                     <Legend wrapperStyle={{ fontSize: 13, color: MUTED }} iconType="circle" />
                     {/* 1px surface stroke on each segment reads as the 2px gap
                         that keeps stacked fills legible. */}
-                    <Bar dataKey="food" name="Food" stackId="p" fill={FOOD} stroke={SURFACE} strokeWidth={1} />
                     <Bar dataKey="body" name="Body" stackId="p" fill={BODY} stroke={SURFACE} strokeWidth={1} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -470,15 +456,13 @@ export default function Overview({ onOpen }) {
                 <summary>Show as a table</summary>
                 <table className="ov-table">
                   <thead>
-                    <tr><th>Day</th><th>Food</th><th>Body</th><th>Total</th></tr>
+                    <tr><th>Day</th><th>Body</th></tr>
                   </thead>
                   <tbody>
                     {pointsSeries.map((d) => (
                       <tr key={d.date}>
                         <td>{d.date}</td>
-                        <td>{d.food}</td>
                         <td>{d.body}</td>
-                        <td>{d.food + d.body}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -486,7 +470,7 @@ export default function Overview({ onOpen }) {
               </details>
             </>
           ) : (
-            <Empty>Check off a habit or log a training day and the bars fill in.</Empty>
+            <Empty>Log a training day and the bars fill in.</Empty>
           )}
         </section>
 
