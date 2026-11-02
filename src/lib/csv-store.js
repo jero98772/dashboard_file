@@ -10,6 +10,11 @@
 const DEBOUNCE_MS = 400;
 const mirrorKey = (table) => `dashboard-mirror:${table}`;
 
+// Static (GitHub Pages) build: read the bundled snapshot, never PUT.
+const STATIC = import.meta.env.VITE_STATIC === '1';
+const tableUrl = (table) =>
+  STATIC ? `${import.meta.env.BASE_URL}data/${table}.json` : `/api/${table}`;
+
 const pending = new Map(); // table -> { rows, timer }
 const inFlight = new Map(); // table -> Promise
 
@@ -61,10 +66,11 @@ function writeMirror(table, rows, dirty) {
 export async function loadTable(table) {
   const mirror = readMirror(table);
   try {
-    const res = await fetch(`/api/${table}`, { headers: { Accept: 'application/json' } });
+    const res = await fetch(tableUrl(table), { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     const data = await res.json();
     setOnline(true);
+    if (STATIC) return mirror?.dirty ? mirror.rows : data.rows;
     if (mirror?.dirty) {
       // Unsaved local edits outrank the stale file; push them back up.
       saveTable(table, mirror.rows);
@@ -81,6 +87,7 @@ export async function loadTable(table) {
 /** Queue a full-table write. Repeated calls inside the window collapse into one. */
 export function saveTable(table, rows) {
   writeMirror(table, rows, true);
+  if (STATIC) return; // no backend: the localStorage mirror is the store
   const entry = pending.get(table);
   if (entry) clearTimeout(entry.timer);
   const timer = setTimeout(() => flush(table), DEBOUNCE_MS);

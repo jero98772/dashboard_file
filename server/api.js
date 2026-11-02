@@ -18,7 +18,21 @@ export const DATA_DIR = resolve(HERE, '..', 'data');
  * diffable file no matter what order the client sends its keys in.
  */
 export const TABLES = {
-  food_days: ['date', 'breakfast', 'plants', 'water', 'pause', 'prep'],
+  food_meals: [
+    'id', 'timestamp', 'date', 'time', 'sitting', 'waited30', 'distracted', 'distractions',
+    'distraction_other', 'small', 'sugar', 'lowered', 'feeling', 'craving_id', 'with_whom',
+    'bad_influence', 'note', 'type',
+  ],
+  food_cravings: [
+    'id', 'timestamp', 'date', 'feeling', 'waited10', 'strategies', 'observed30', 'outcome',
+    'alternative', 'note',
+  ],
+  food_days: [
+    'date', 'water', 'weight', 'weight_note', 'habits', 'who', 'note', 'up', 'challenge', 'challenge_done',
+  ],
+  food_slips: ['id', 'timestamp', 'date', 'time', 'food', 'why', 'amount'],
+  // Calorie counter: kind is `food` (eaten) or `ex` (exercise).
+  food_log: ['id', 'timestamp', 'date', 'time', 'kind', 'name', 'minutes', 'kcal'],
   food_settings: ['key', 'value'],
   body_entries: ['date', 'steps', 'sword_sets', 'pushup_sets', 'stretch_breaks', 'weight', 'note'],
   body_settings: ['key', 'value'],
@@ -26,8 +40,9 @@ export const TABLES = {
   freedom_logs: ['timestamp', 'date', 'type', 'location', 'note'],
   freedom_settings: ['key', 'value'],
   // `done` is a space-separated list of routine item ids, in ITEMS order.
-  routine_days: ['date', 'done'],
+  routine_days: ['date', 'done', 'woke', 'slept'],
   routine_settings: ['key', 'value'],
+  learning_log: ['id', 'date', 'time', 'topic', 'format', 'minutes', 'title', 'sample', 'created'],
 };
 
 const filePath = (table) => join(DATA_DIR, `${table}.csv`);
@@ -124,5 +139,25 @@ export function csvApiPlugin() {
     name: 'csv-api',
     configureServer: mount,
     configurePreviewServer: mount,
+  };
+}
+
+/**
+ * Vite plugin for the static (GitHub Pages) build: snapshots every table into
+ * the bundle as data/<table>.json, so the app can run with no server.
+ */
+export function csvSnapshotPlugin() {
+  return {
+    name: 'csv-snapshot',
+    apply: 'build',
+    async generateBundle() {
+      for (const table of Object.keys(TABLES)) {
+        this.emitFile({
+          type: 'asset',
+          fileName: `data/${table}.json`,
+          source: JSON.stringify(await readTable(table)),
+        });
+      }
+    },
   };
 }

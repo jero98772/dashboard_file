@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { addDays, parseKey, todayKey } from '../lib/dates.js';
+import { addDays, daysBetween, parseKey, todayKey } from '../lib/dates.js';
 import {
   BREAK_MS,
   DEFAULT_IDENTITY,
   FOCUS_MS,
   ITEMS,
+  LEARN_ITEMS,
   MILESTONES,
   N,
   NIGHT_PLACES,
@@ -14,15 +15,18 @@ import {
   claimedIn,
   computeFocus,
   countOn,
-  doneToRows,
   fmtTime,
+  learnSlotAt,
   mmss,
   nowMinutes,
+  patchDay,
   phaseOf,
   rowsToDone,
   rewardFor,
   streakInfo,
+  todayAtMinute,
   totalVotes,
+  withTick,
 } from '../lib/routine-rules.js';
 import { useSettings, useTable } from '../lib/use-table.js';
 
@@ -83,6 +87,8 @@ export default function Routine() {
   const [remaining, setRemaining] = useState(0);
   const [toast, setToast] = useState('');
   const [popId, setPopId] = useState(null);
+  // The day the auto pomodoro was stopped by hand; it stays off until tomorrow.
+  const [autoOff, setAutoOff] = useState(null);
 
   const done = useMemo(() => rowsToDone(dayRows), [dayRows]);
   const doneToday = useMemo(() => done[today] ?? [], [done, today]);
@@ -105,6 +111,12 @@ export default function Routine() {
   const timerRef = useRef(null);
   useEffect(() => { timerRef.current = timer; }, [timer]);
 
+  // The auto-start check runs inside the interval, so it reads these via refs.
+  const doneRef = useRef(doneSet);
+  useEffect(() => { doneRef.current = doneSet; }, [doneSet]);
+  const autoOffRef = useRef(autoOff);
+  useEffect(() => { autoOffRef.current = autoOff; }, [autoOff]);
+
   const expiredRef = useRef(null);
 
   useEffect(() => {
@@ -114,7 +126,19 @@ export default function Routine() {
       setMinute(nowMinutes());
       setToday(todayKey());
       const running = timerRef.current;
-      if (!running) return;
+      if (!running) {
+        // Auto pomodoro: follow the morning schedule, so opening the page at
+        // 6:12 gives block 1 its remaining 13 minutes.
+        if (autoOffRef.current === todayKey()) return;
+        const slot = learnSlotAt(nowMinutes());
+        if (!slot) return;
+        if (slot.mode === 'focus' && doneRef.current.has(slot.item.id)) return;
+        const next = { mode: slot.mode, endsAt: todayAtMinute(slot.endMin), id: slot.item.id, auto: true };
+        timerRef.current = next;
+        setTimer(next);
+        setRemaining(next.endsAt - Date.now());
+        return;
+      }
       const left = running.endsAt - Date.now();
       if (left > 0) {
         setRemaining(left);
@@ -139,12 +163,7 @@ export default function Routine() {
 
   /* ---- ticking an item ---- */
   const setTicked = useCallback((id, next) => {
-    setDayRows((prev) => {
-      const all = rowsToDone(prev);
-      const ticked = new Set(all[today] ?? []);
-      if (next) ticked.add(id); else ticked.delete(id);
-      return doneToRows({ ...all, [today]: [...ticked] });
-    });
+    setDayRows((prev) => patchDay(prev, today, (row) => ({ done: withTick(row.done, id, next) })));
   }, [setDayRows, today]);
 
   const toggle = useCallback((id) => {
@@ -184,15 +203,36 @@ export default function Routine() {
     } catch { /* audio is a nicety, never a failure */ }
   }, []);
 
-  const startFocus = useCallback((id) => {
-    // The context has to be built inside the click to be allowed to make sound.
+  // The context has to be built inside a user gesture to be allowed to make
+  // sound, so the first click anywhere on the page unlocks it for the auto timer.
+  const unlockAudio = useCallback(() => {
     try {
       audio.current = audio.current || new (window.AudioContext || window.webkitAudioContext)();
       if (audio.current.state === 'suspended') audio.current.resume();
     } catch { /* no audio in this browser */ }
+  }, []);
+  useEffect(() => {
+    window.addEventListener('pointerdown', unlockAudio, { once: true });
+    return () => window.removeEventListener('pointerdown', unlockAudio);
+  }, [unlockAudio]);
+
+  const startFocus = useCallback((id) => {
+    unlockAudio();
+    setAutoOff(null);
     setTimer({ mode: 'focus', endsAt: Date.now() + FOCUS_MS, id });
     setRemaining(FOCUS_MS);
+  }, [unlockAudio]);
+
+  const stopTimer = useCallback(() => {
+    setAutoOff(todayKey());
+    setTimer(null);
   }, []);
+
+  // Skipping a break goes straight into the next unfinished block.
+  const skipBreak = useCallback(() => {
+    const next = LEARN_ITEMS.find((it) => !doneSet.has(it.id));
+    if (next) startFocus(next.id); else setTimer(null);
+  }, [doneSet, startFocus]);
 
   const onExpire = useCallback((expired) => {
     beep();
@@ -290,6 +330,16 @@ export default function Routine() {
           <p className="rt-sub">Every tick is a vote for this person.</p>
         </header>
 
+        <Pomodoro
+          timer={timer}
+          remaining={remaining}
+          doneSet={doneSet}
+          minute={minute}
+          autoOff={autoOff === today}
+          onStart={startFocus}
+          onStop={stopTimer}
+        />
+
         {banner ? <p className="rt-banner" role="status">{banner}</p> : null}
 
         <div className="rt-cols">
@@ -309,7 +359,8 @@ export default function Routine() {
                 minute={minute}
                 onToggle={toggle}
                 onStart={startFocus}
-                onStop={() => setTimer(null)}
+                onStop={stopTimer}
+                onSkipBreak={skipBreak}
               />
 
               <div className="rt-stats">
@@ -496,6 +547,8 @@ export default function Routine() {
                 <p><b>Make it satisfying.</b> Tick each item the moment you finish it. The tick, the dial filling and the chain are the immediate reward. The ladder is the bigger one.</p>
               </details>
             </section>
+
+            <ItemHistogram done={done} today={today} />
           </div>
         </div>
       </div>
@@ -587,7 +640,7 @@ function Dial({ doneSet, focus, minute, ticks }) {
 }
 
 /** The one thing to do right now, or the countdown that replaced it. */
-function Now({ timer, remaining, focus, minute, onToggle, onStart, onStop }) {
+function Now({ timer, remaining, focus, minute, onToggle, onStart, onStop, onSkipBreak }) {
   if (timer?.mode === 'break') {
     return (
       <div className="rt-now rt-ph-dawn">
@@ -596,7 +649,7 @@ function Now({ timer, remaining, focus, minute, onToggle, onStart, onStop }) {
         <div className="rt-clock">{mmss(remaining)}</div>
         <p className="rt-stack">Stand up and drink water. The next block starts when this ends.</p>
         <div className="rt-actions">
-          <button type="button" className="rt-btn rt-btn-ghost" onClick={onStop}>Skip break</button>
+          <button type="button" className="rt-btn rt-btn-ghost" onClick={onSkipBreak}>Skip break</button>
         </div>
       </div>
     );
@@ -651,6 +704,109 @@ function Now({ timer, remaining, focus, minute, onToggle, onStart, onStop }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Small always-visible pomodoro: 25 min focus, 5 min break, four times. */
+function Pomodoro({ timer, remaining, doneSet, minute, autoOff, onStart, onStop }) {
+  const doneCount = LEARN_ITEMS.filter((it) => doneSet.has(it.id)).length;
+  const nextBlock = LEARN_ITEMS.find((it) => !doneSet.has(it.id));
+  const running = timer && LEARN_ITEMS.some((it) => it.id === timer.id);
+  const idx = running ? LEARN_ITEMS.findIndex((it) => it.id === timer.id) : -1;
+  const first = LEARN_ITEMS[0];
+  const last = LEARN_ITEMS[LEARN_ITEMS.length - 1];
+
+  let chip; let label; let clock = null;
+  if (running && timer.mode === 'focus') {
+    chip = 'Focus'; label = `Block ${idx + 1} of ${LEARN_ITEMS.length}`; clock = mmss(remaining);
+  } else if (running && timer.mode === 'break') {
+    chip = 'Break'; label = `Next: block ${Math.min(idx + 2, LEARN_ITEMS.length)}`; clock = mmss(remaining);
+  } else if (!nextBlock) {
+    chip = 'Done'; label = `${LEARN_ITEMS.length} of ${LEARN_ITEMS.length} blocks done`;
+  } else if (autoOff) {
+    chip = 'Paused'; label = 'Auto start is off for today';
+  } else if (minute < first.t) {
+    chip = 'Waiting'; label = `Starts automatically at ${fmtTime(first.t)}`;
+  } else if (minute >= last.e) {
+    chip = 'Missed'; label = `${doneCount} of ${LEARN_ITEMS.length} blocks done`;
+  } else {
+    chip = 'Waiting'; label = 'Next block starts on schedule';
+  }
+
+  const mode = running ? timer.mode : 'idle';
+  return (
+    <div className={`rt-pomo is-${mode}`} role="timer" aria-label={`Pomodoro: ${chip}. ${label}`}>
+      <span className="rt-pomo-chip">{chip}</span>
+      {clock ? <span className="rt-pomo-clock">{clock}</span> : null}
+      <span className="rt-pomo-label">{label}</span>
+      <span className="rt-pomo-dots" aria-hidden="true">
+        {LEARN_ITEMS.map((it, i) => (
+          <i key={it.id} className={`${doneSet.has(it.id) ? 'is-done' : ''}${i === idx ? ' is-now' : ''}`} />
+        ))}
+      </span>
+      {running ? (
+        <button type="button" className="rt-btn rt-btn-ghost rt-btn-small" onClick={onStop}>Stop</button>
+      ) : nextBlock ? (
+        <button type="button" className="rt-btn rt-btn-small" onClick={() => onStart(nextBlock.id)}>
+          Start now
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** How often each routine item gets ticked, over the last 30 days or all time. */
+function ItemHistogram({ done, today }) {
+  const [range, setRange] = useState('30');
+  const stats = useMemo(() => {
+    const recorded = Object.keys(done).sort();
+    if (!recorded.length) return { days: 0, rows: [] };
+    let from = recorded[0];
+    if (range === '30') {
+      const cut = addDays(today, -29);
+      if (cut > from) from = cut;
+    }
+    const days = Math.max(1, daysBetween(from, today) + 1);
+    const counts = Object.fromEntries(ITEMS.map((it) => [it.id, 0]));
+    for (const key of recorded) {
+      if (key < from || key > today) continue;
+      for (const id of done[key]) counts[id] += 1;
+    }
+    return { days, rows: ITEMS.map((it) => ({ item: it, n: counts[it.id], pct: Math.round((counts[it.id] / days) * 100) })) };
+  }, [done, today, range]);
+
+  return (
+    <section className="rt-card">
+      <div className="rt-card-head">
+        <h2 className="rt-card-title">How often each item gets done</h2>
+        <p className="rt-card-note">
+          Share of days each item was ticked{stats.days ? `, over ${stats.days} ${stats.days === 1 ? 'day' : 'days'}` : ''}.
+        </p>
+        <div className="rt-chips" role="radiogroup" aria-label="Time range">
+          {[['30', 'Last 30 days'], ['all', 'All time']].map(([v, text]) => (
+            <button key={v} type="button" role="radio" aria-checked={range === v} className="rt-chip"
+              onClick={() => setRange(v)}>
+              {text}
+            </button>
+          ))}
+        </div>
+      </div>
+      {stats.days === 0 ? (
+        <p className="rt-hint">Tick items to see how often each one gets done.</p>
+      ) : (
+        <ol className="rt-hist">
+          {stats.rows.map(({ item, n, pct }) => (
+            <li key={item.id} className={`rt-hist-row rt-ph-${phaseOf(item.t)}`}
+              title={`${item.name}: ${n} of ${stats.days} days`}>
+              <span className="rt-when">{fmtTime(item.t)}</span>
+              <span className="rt-hist-name">{item.name}</span>
+              <span className="rt-hist-bar"><i style={{ width: `${pct}%` }} /></span>
+              <span className="rt-hist-val">{n}/{stats.days} · {pct}%</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -814,6 +970,34 @@ const CSS = `
 .rt-root details summary { cursor: pointer; font-weight: 600; font-size: 0.95rem; }
 .rt-root details p { margin: 12px 0 0; color: ${MUTED}; line-height: 1.6; max-width: 64ch; font-size: 0.9rem; }
 .rt-root details p b { color: ${INK}; }
+
+/* pomodoro */
+.rt-pomo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; align-items: center;
+  gap: 8px 14px; background: ${SURFACE}; border: 1px solid ${LINE}; border-left: 3px solid ${DIM};
+  border-radius: 12px; padding: 8px 14px; font-size: 0.86rem; }
+.rt-pomo.is-focus { border-left-color: ${DAWN}; --rt-c: ${DAWN}; }
+.rt-pomo.is-break { border-left-color: ${DAY}; --rt-c: ${DAY}; }
+.rt-pomo-chip { padding: 2px 10px; border-radius: 999px; background: ${LINE}; font-weight: 600; font-size: 0.76rem; }
+.rt-pomo-clock { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rt-c, ${INK}); line-height: 1; }
+.rt-pomo-label { color: ${MUTED}; flex: 1; min-width: 140px; }
+.rt-pomo-dots { display: inline-flex; gap: 5px; }
+.rt-pomo-dots i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid ${DIM}; display: inline-block; }
+.rt-pomo-dots i.is-done { background: ${DAWN}; border-color: ${DAWN}; }
+.rt-pomo-dots i.is-now { border-color: ${INK}; }
+
+/* item histogram */
+.rt-hist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.rt-hist-row { display: grid; grid-template-columns: 70px minmax(110px, 1.1fr) 2fr 92px; gap: 10px; align-items: center; }
+.rt-hist-row .rt-when { padding: 0; }
+.rt-hist-name { font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rt-hist-bar { height: 12px; background: ${LINE}; border-radius: 4px; overflow: hidden; }
+.rt-hist-bar i { display: block; height: 100%; background: var(--rt-c); border-radius: 4px; }
+.rt-hist-val { color: ${MUTED}; font-size: 0.78rem; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+@media (max-width: 640px) {
+  .rt-hist-row { grid-template-columns: 1fr 84px; }
+  .rt-hist-row .rt-when { display: none; }
+  .rt-hist-bar { grid-column: 1 / -1; grid-row: 2; }
+}
 
 .rt-toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 16px);
   background: ${INK}; color: ${BG}; padding: 12px 18px; border-radius: 12px;

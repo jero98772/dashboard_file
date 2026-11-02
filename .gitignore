@@ -23,5 +23,3 @@ dist-ssr
 *.sln
 *.sw?
 
-# Personal health and relapse logs — never commit these.
-data/

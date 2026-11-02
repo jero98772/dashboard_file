@@ -686,10 +686,15 @@ export function realisticForecast(entries, goalWeight) {
 export function naiveCheck(forecast, current) {
   if (!forecast || forecast.state !== 'projected') return null;
   const kgPerWeek = Math.abs(forecast.perWeek);
+  if (!(kgPerWeek > 0)) return null;
   const deficit = impliedDeficit(kgPerWeek);
+  // Carried from today's weigh-in, not from where the fitted line crosses the
+  // goal — that crossing can already be behind you when the last reading sits
+  // above the line.
+  const weeks = (current - forecast.goal) / kgPerWeek;
   return {
-    weeks: forecast.weeks,
-    date: forecast.date,
+    weeks,
+    date: addDays(forecast.from, Math.ceil(weeks * 7)),
     kgPerWeek,
     deficit,
     // A deficit larger than a whole day's energy use cannot be run, so the
@@ -755,12 +760,14 @@ export function realisticSeries(entries, r, naive) {
 
   // Run to the slow end, so the whole band is on screen, but never past two
   // years — beyond that the weigh-ins you have would be a smudge.
-  const slowX = lastX + r.slow.days;
+  const showNaive = Boolean(naive && naive.weeks > 0);
+  // Your own pace can be slower than the band, so stretch to cover it too.
+  const slowX = Math.max(lastX + r.slow.days, showNaive ? lastX + Math.ceil(naive.weeks * 7) : 0);
   const maxX = Math.min(slowX, lastX + 730);
   const capped = maxX < slowX;
 
   const at = (pct, x) => Math.max(r.goal, weightAtWeeklyPct(current, pct, x - lastX));
-  const naiveAt = (x) => (naive && naive.impossible ? Math.max(r.goal, current + (naive.kgPerWeek * -1 * (x - lastX)) / 7) : undefined);
+  const naiveAt = (x) => (showNaive ? Math.max(r.goal, current + (naive.kgPerWeek * -1 * (x - lastX)) / 7) : undefined);
 
   const rows = weighed.map((e) => {
     const x = dayIndex(firstDate, e.date);
@@ -779,7 +786,7 @@ export function realisticSeries(entries, r, naive) {
     date: addDays(firstDate, x),
     band: [+at(MAX_WEEKLY_PCT, x).toFixed(2), +at(MIN_PLANNING_PCT, x).toFixed(2)],
     likely: x <= lastX + r.likely.days ? +at(r.likely.pct, x).toFixed(2) : undefined,
-    naive: naive && naive.impossible && x <= lastX + Math.ceil(naive.weeks * 7)
+    naive: showNaive && x <= lastX + Math.ceil(naive.weeks * 7)
       ? +naiveAt(x).toFixed(2)
       : undefined,
   });
@@ -788,7 +795,7 @@ export function realisticSeries(entries, r, naive) {
   // Weekly early on, then fortnightly — a smooth curve does not need 100 points.
   const step = maxX - lastX > 180 ? 14 : 7;
   for (let x = lastX + step; x <= maxX; x += step) xs.add(x);
-  for (const days of [r.fast.days, r.likely.days, naive && naive.impossible ? Math.ceil(naive.weeks * 7) : null]) {
+  for (const days of [r.fast.days, r.likely.days, showNaive ? Math.ceil(naive.weeks * 7) : null]) {
     if (days != null && lastX + days <= maxX) xs.add(lastX + days);
   }
   xs.add(maxX);
@@ -807,10 +814,11 @@ export function realisticSeries(entries, r, naive) {
     fastX: lastX + r.fast.days <= maxX ? lastX + r.fast.days : null,
     likelyX: lastX + r.likely.days <= maxX ? lastX + r.likely.days : null,
     slowX: capped ? null : slowX,
-    naiveX: naive && naive.impossible && lastX + Math.ceil(naive.weeks * 7) <= maxX
+    naiveX: showNaive && lastX + Math.ceil(naive.weeks * 7) <= maxX
       ? lastX + Math.ceil(naive.weeks * 7)
       : null,
-    showNaive: Boolean(naive && naive.impossible),
+    showNaive,
+    naiveDate: showNaive ? naive.date : null,
   };
 }
 

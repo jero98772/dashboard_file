@@ -25,3 +25,6 @@ export const offsetKey = (n) => addDays(todayKey(), -n);
 
 export const daysBetween = (a, b) =>
   Math.round((parseKey(b) - parseKey(a)) / 86400000);
+
+/** "viernes, 23 de octubre" -> "Viernes, 23 de octubre" (CSS capitalize would hit every word). */
+export const capitalize = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);

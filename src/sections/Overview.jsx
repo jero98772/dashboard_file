@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -26,8 +26,10 @@ import {
   weightTrend,
   withTrend,
 } from '../lib/body-rules.js';
+import { flushAll } from '../lib/csv-store.js';
 import { addDays, todayKey } from '../lib/dates.js';
 import { mealStats } from '../lib/food-rules.js';
+import { learningStats } from '../lib/learning-rules.js';
 import {
   computeStreak,
   dayCongrats,
@@ -41,8 +43,15 @@ import {
 } from '../lib/freedom-rules.js';
 import {
   N as ROUTINE_ITEMS,
+  SLEEP_TARGET,
   THRESHOLD as ROUTINE_THRESHOLD,
+  WAKE_TARGET,
+  clockToMinutes,
+  fmtTime,
+  patchDay,
   rowsToDone as rowsToRoutineDone,
+  rowsToTimes,
+  withTick,
   streakInfo as routineStreak,
   totalVotes as routineVotes,
 } from '../lib/routine-rules.js';
@@ -62,6 +71,7 @@ const WEIGHT = '#38bdf8';
 const GOAL = '#f43f5e';
 const FREEDOM = '#3fb950';
 const ROUTINE = '#9599f0';
+const LEARNING = '#3b6bf0';
 const INK = '#f1f5f9';
 const MUTED = '#94a3b8';
 const GRID = '#1e293b';
@@ -71,17 +81,22 @@ const DAYS = 14;
 
 export default function Overview({ onOpen }) {
   const [foodRows] = useTable('food_meals');
+  const [foodSlips] = useTable('food_slips');
   const [bodyRows, setBodyRows] = useTable('body_entries');
   const [bodySettings] = useSettings('body_settings');
   const [freedomDays] = useTable('freedom_days');
   const [freedomLogs] = useTable('freedom_logs');
-  const [routineRows] = useTable('routine_days');
+  const [routineRows, setRoutineRows] = useTable('routine_days');
+  const [learningRows] = useTable('learning_log');
 
   const today = todayKey();
   const goalWeight = Number(bodySettings.goalWeight) || 70;
 
   /* ---- food ---- */
-  const food = useMemo(() => mealStats(foodRows, today, 7), [foodRows, today]);
+  const food = useMemo(() => mealStats(foodRows, today, 7, foodSlips), [foodRows, foodSlips, today]);
+
+  /* ---- learning ---- */
+  const learning = useMemo(() => learningStats(learningRows, today, 7), [learningRows, today]);
 
   /* ---- body ---- */
   const body = useMemo(() => {
@@ -217,6 +232,66 @@ export default function Overview({ onOpen }) {
     setWeightInput('');
   }
 
+  /* ---- wake-up and bedtime, one press each ---- */
+  const times = useMemo(() => rowsToTimes(routineRows), [routineRows]);
+  const hourNow = new Date().getHours();
+  const yesterday = addDays(today, -1);
+  const wokeToday = times[today]?.woke || '';
+  // Before noon the sleep time is last night's, so an after-midnight bedtime
+  // still closes the previous day.
+  const shownSleepDay = times[today]?.slept ? today : hourNow < 12 ? yesterday : today;
+  const sleptShown = times[shownSleepDay]?.slept || '';
+
+  const sleepAvg = useMemo(() => {
+    const avg = (vals) => (vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null);
+    const wakes = []; const beds = [];
+    for (let i = 0; i < 7; i++) {
+      const t = times[addDays(today, -i)];
+      if (!t) continue;
+      if (t.woke) wakes.push(clockToMinutes(t.woke));
+      if (t.slept) beds.push(clockToMinutes(t.slept, { night: true }));
+    }
+    return { wake: avg(wakes.filter((v) => v != null)), bed: avg(beds.filter((v) => v != null)) };
+  }, [times, today]);
+
+  // Edits stay in a draft until Save; saving a time ticks the routine item and
+  // clearing it unticks it.
+  const [clockDraft, setClockDraft] = useState(null);
+  const [clockSaved, setClockSaved] = useState('');
+  const savedTimer = useRef(null);
+  useEffect(() => () => clearTimeout(savedTimer.current), []);
+  const wokeValue = clockDraft?.woke ?? wokeToday;
+  const sleptValue = clockDraft?.slept ?? sleptShown;
+  const clockDirty = wokeValue !== wokeToday || sleptValue !== sleptShown;
+  const editClock = (field, value) => setClockDraft((d) => ({ woke: wokeToday, slept: sleptShown, ...d, [field]: value }));
+
+  function saveClock(e) {
+    e.preventDefault();
+    if (!clockDirty) return;
+    const woke = wokeValue;
+    const slept = sleptValue;
+    setRoutineRows((prev) => {
+      let next = prev;
+      if (woke !== wokeToday) {
+        next = patchDay(next, today, (row) => ({ woke, done: withTick(row.done, 'wake', Boolean(woke)) }));
+      }
+      if (slept !== sleptShown) {
+        next = patchDay(next, shownSleepDay, (row) => ({ slept, done: withTick(row.done, 'sleep', Boolean(slept)) }));
+      }
+      return next;
+    });
+    // Write the CSV now rather than after the debounce.
+    setTimeout(flushAll, 0);
+    setClockDraft(null);
+    setClockSaved(`Saved ✓ wake ${woke ? fmtClock(woke) : '—'} · sleep ${slept ? fmtClock(slept) : '—'}`);
+    clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setClockSaved(''), 3500);
+  }
+  const nowHHMM = () => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
   const hasWeight = weightSeries.length > 1;
   const hasPoints = pointsSeries.some((d) => d.body > 0);
 
@@ -227,7 +302,7 @@ export default function Overview({ onOpen }) {
         <header className="ov-head">
           <h1 className="ov-title">Today</h1>
           <p className="ov-sub">
-            Everything the three sections know, on one page. Each number below is recomputed from
+            Everything the sections know, on one page. Each number below is recomputed from
             the CSV files in <code>data/</code> — nothing here is stored twice.
           </p>
         </header>
@@ -261,7 +336,7 @@ export default function Overview({ onOpen }) {
             label="mindful meals, last 7 days"
             value={food.mindful == null ? '—' : `${food.mindful}`}
             unit={food.mindful == null ? '' : '%'}
-            foot={food.meals ? `${food.meals} meals · ${food.alternatives} alternatives chosen` : 'log a meal to start'}
+            foot={food.meals ? `${food.meals} meals · ${food.slips} slips` : 'log a meal to start'}
             accent={FOOD}
           />
           <Tile
@@ -293,6 +368,13 @@ export default function Overview({ onOpen }) {
                   : `${freedom.urgesResisted} urges resisted · ${freedom.xp} XP`
             }
             accent={FREEDOM}
+          />
+          <Tile
+            label="learning, last 7 days"
+            value={`${learning.minutes}`}
+            unit="min"
+            foot={learning.xp ? `level ${learning.level} · ${learning.xp.toLocaleString('en-US')} XP · ${learning.streak}-day streak` : 'log something you learned to start'}
+            accent={LEARNING}
           />
         </section>
 
@@ -331,10 +413,81 @@ export default function Overview({ onOpen }) {
           {weightError ? <p className="ov-weigh-error" role="alert">{weightError}</p> : null}
         </section>
 
+        <section className="ov-card">
+          <div className="ov-card-head">
+            <h2 className="ov-card-title">Wake up &amp; go to sleep</h2>
+            <p className="ov-card-note">
+              Enter the times (or press now), then Save. Saving ticks the routine item; clearing a time unticks it.
+            </p>
+          </div>
+          <form className="ov-clock-form" onSubmit={saveClock}>
+          <div className="ov-clock">
+            <div className="ov-clock-btn is-wake">
+              <span className="ov-clock-icon" aria-hidden="true">☀</span>
+              <span className="ov-clock-body">
+                <label htmlFor="ov-woke"><b>Wake-up time</b></label>
+                <span className="ov-clock-row">
+                  <input
+                    id="ov-woke"
+                    type="time"
+                    className="ov-clock-input"
+                    value={wokeValue}
+                    onChange={(e) => editClock('woke', e.target.value)}
+                  />
+                  <button type="button" className="ov-clock-now" onClick={() => editClock('woke', nowHHMM())}>
+                    now
+                  </button>
+                </span>
+                <small>
+                  {wokeToday
+                    ? `${fmtClock(wokeToday)} · ${vsTarget(clockToMinutes(wokeToday), WAKE_TARGET)}`
+                    : `target ${fmtTime(WAKE_TARGET)}`}
+                </small>
+              </span>
+            </div>
+            <div className="ov-clock-btn is-sleep">
+              <span className="ov-clock-icon" aria-hidden="true">☾</span>
+              <span className="ov-clock-body">
+                <label htmlFor="ov-slept">
+                  <b>{shownSleepDay === today ? 'Sleep time tonight' : 'Sleep time last night'}</b>
+                </label>
+                <span className="ov-clock-row">
+                  <input
+                    id="ov-slept"
+                    type="time"
+                    className="ov-clock-input"
+                    value={sleptValue}
+                    onChange={(e) => editClock('slept', e.target.value)}
+                  />
+                  <button type="button" className="ov-clock-now" onClick={() => editClock('slept', nowHHMM())}>
+                    now
+                  </button>
+                </span>
+                <small>
+                  {sleptShown
+                    ? `${fmtClock(sleptShown)} · ${vsTarget(clockToMinutes(sleptShown, { night: true }), SLEEP_TARGET)}`
+                    : `target ${fmtTime(SLEEP_TARGET)}`}
+                </small>
+              </span>
+            </div>
+          </div>
+          <div className="ov-clock-actions">
+            <button type="submit" className="ov-weigh-save" disabled={!clockDirty}>Save times</button>
+            {clockDirty ? <span className="ov-clock-status is-dirty">Unsaved changes</span> : null}
+            {!clockDirty && clockSaved ? <span className="ov-clock-status" role="status">{clockSaved}</span> : null}
+          </div>
+          </form>
+          <p className="ov-clock-avg">
+            Last 7 days: wake {sleepAvg.wake == null ? '—' : fmtTime(sleepAvg.wake % 1440)}
+            {' · '}bed {sleepAvg.bed == null ? '—' : fmtTime(sleepAvg.bed % 1440)}
+            
+          </p>
+        </section>
+
         <section className="ov-levels">
           <LevelRow
             name="Food"
-            detail={`${food.meals} meals this week · ${food.alternatives} alternatives`}
+            detail={`${food.meals} meals this week · ${food.slips} slips`}
             color={FOOD}
             onOpen={() => onOpen('food')}
           />
@@ -359,6 +512,12 @@ export default function Overview({ onOpen }) {
             detail={`Nivel ${freedom.level.level} · ${freedom.level.name}`}
             color={FREEDOM}
             onOpen={() => onOpen('freedom')}
+          />
+          <LevelRow
+            name="Learning"
+            detail={learning.xp ? `LVL ${learning.level} · ${learning.xp.toLocaleString('en-US')} XP · ${learning.streak}-day streak` : 'nothing logged yet'}
+            color={LEARNING}
+            onOpen={() => onOpen('learning')}
           />
         </section>
 
@@ -571,6 +730,22 @@ const TOOLTIP = {
   fontSize: 13,
 };
 
+/** "06:12" -> "6:12 AM". */
+function fmtClock(hhmm) {
+  const m = clockToMinutes(hhmm);
+  return m == null ? hhmm : fmtTime(m);
+}
+
+/** Minutes against the routine's target, e.g. "12 min late", "on time". */
+function vsTarget(actual, target) {
+  if (actual == null) return '';
+  const diff = actual - target;
+  if (Math.abs(diff) <= 5) return 'on time';
+  const abs = Math.abs(diff);
+  const text = abs >= 60 ? `${Math.floor(abs / 60)} h ${abs % 60} min` : `${abs} min`;
+  return `${text} ${diff > 0 ? 'late' : 'early'}`;
+}
+
 const CSS = `
 .ov-root { background: #020617; color: ${INK}; padding: 24px 16px 60px;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
@@ -623,6 +798,31 @@ const CSS = `
 .ov-table th, .ov-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid ${GRID}; }
 .ov-table th { color: ${MUTED}; font-weight: 500; }
 
+.ov-clock { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.ov-clock-btn { display: flex; align-items: center; gap: 14px; text-align: left;
+  background: #020617; color: ${INK}; border: 1px solid ${GRID}; border-left: 3px solid var(--c);
+  border-radius: 14px; padding: 14px 16px; font: inherit; }
+.ov-clock-btn:hover, .ov-clock-btn:focus-within { border-color: var(--c); }
+.ov-clock-btn:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+.ov-clock-btn.is-wake { --c: #e3a64a; }
+.ov-clock-btn.is-sleep { --c: ${ROUTINE}; }
+.ov-clock-icon { font-size: 1.6rem; color: var(--c); line-height: 1; }
+.ov-clock-btn b { display: block; font-size: 1rem; }
+.ov-clock-btn small { display: block; color: ${MUTED}; font-size: 0.8rem; margin-top: 2px; }
+.ov-clock-body { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.ov-clock-body label { cursor: pointer; }
+.ov-clock-row { display: flex; gap: 8px; align-items: center; }
+.ov-clock-input { background: #020617; border: 1px solid ${GRID}; border-radius: 8px; color: ${INK};
+  font: inherit; font-size: 1.05rem; font-variant-numeric: tabular-nums; padding: 6px 10px; color-scheme: dark; }
+.ov-clock-input:focus-visible { outline: 2px solid var(--c); outline-offset: 1px; }
+.ov-clock-now { background: none; border: 1px solid ${MUTED}; border-radius: 8px; color: ${INK};
+  font: inherit; font-size: 0.8rem; padding: 6px 10px; cursor: pointer; }
+.ov-clock-now:hover { border-color: var(--c); }
+.ov-clock-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+.ov-clock-actions .ov-weigh-save:disabled { opacity: .45; cursor: default; filter: none; }
+.ov-clock-status { color: ${FREEDOM}; font-size: 0.85rem; }
+.ov-clock-status.is-dirty { color: #e3a64a; }
+.ov-clock-avg { margin: 12px 0 0; color: ${MUTED}; font-size: 0.8rem; }
 .ov-weigh { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ov-weigh-label { color: ${MUTED}; font-size: 0.85rem; }
 .ov-weigh-input { width: 120px; background: #020617; border: 1px solid ${GRID}; border-radius: 10px;

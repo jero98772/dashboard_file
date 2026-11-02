@@ -71,6 +71,78 @@ export const mmss = (ms) => {
 export const phaseOf = (t) =>
   t < at(8, 30) ? 'dawn' : t < at(19, 0) ? 'day' : t < at(21, 0) ? 'dusk' : 'night';
 
+export const LEARN_ITEMS = ITEMS.filter((i) => i.learn);
+
+/**
+ * Where the clock sits in the morning learning schedule: inside a block
+ * (`focus`, ends at the block's end) or inside the 5-minute gap after one
+ * (`break`, ends when the next block starts). Null outside both.
+ */
+export function learnSlotAt(minute) {
+  for (let k = 0; k < LEARN_ITEMS.length; k++) {
+    const it = LEARN_ITEMS[k];
+    if (minute >= it.t && minute < it.e) return { mode: 'focus', item: it, endMin: it.e };
+    const next = LEARN_ITEMS[k + 1];
+    if (it.brk && next && minute >= it.e && minute < next.t) {
+      return { mode: 'break', item: it, endMin: next.t };
+    }
+  }
+  return null;
+}
+
+/** Epoch ms for a minutes-since-midnight value today. */
+export function todayAtMinute(min) {
+  const d = new Date();
+  d.setHours(Math.floor(min / 60), min % 60, 0, 0);
+  return d.getTime();
+}
+
+/* ---------- wake-up and bedtime ---------- */
+
+export const WAKE_TARGET = ITEMS.find((i) => i.id === 'wake').t;
+export const SLEEP_TARGET = ITEMS.find((i) => i.id === 'sleep').t;
+
+/**
+ * "06:12" -> 372. With `night`, times before noon count as after midnight
+ * (1:10 AM -> 1510), so a late bedtime compares and averages correctly.
+ */
+export function clockToMinutes(hhmm, { night = false } = {}) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '').trim());
+  if (!m) return null;
+  const min = Number(m[1]) * 60 + Number(m[2]);
+  if (Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+  return night && min < 12 * 60 ? min + 1440 : min;
+}
+
+/** routine_days rows -> { 'YYYY-MM-DD': { woke: 'HH:MM', slept: 'HH:MM' } } */
+export function rowsToTimes(rows) {
+  const times = {};
+  for (const row of rows) {
+    if (!row.date || (!row.woke && !row.slept)) continue;
+    times[row.date] = { woke: row.woke || '', slept: row.slept || '' };
+  }
+  return times;
+}
+
+/** Adds or removes one id from a `done` string, keeping ITEMS order. */
+export function withTick(doneStr, id, on) {
+  const ticked = new Set(String(doneStr || '').split(/\s+/).filter(Boolean));
+  if (on) ticked.add(id); else ticked.delete(id);
+  return ITEM_IDS.filter((x) => ticked.has(x)).join(' ');
+}
+
+/**
+ * Merges `fn(row)` into one day's row, creating it if needed. Rows stay sorted
+ * by date, and a day left with nothing on it is dropped.
+ */
+export function patchDay(rows, day, fn) {
+  const current = rows.find((r) => r.date === day) ?? { date: day, done: '', woke: '', slept: '' };
+  const next = { ...current, ...fn(current), date: day };
+  const rest = rows.filter((r) => r.date !== day);
+  const keep = next.done || next.woke || next.slept;
+  return (keep ? [...rest, next] : rest).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 /* ---------- storage shape ---------- */
 
 /** routine_days rows -> { 'YYYY-MM-DD': ['wake', 'learn1', ...] } */

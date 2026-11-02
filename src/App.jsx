@@ -4,6 +4,7 @@ import { useBackendStatus } from './lib/use-table.js';
 import Body from './sections/Body.jsx';
 import Food from './sections/Food.jsx';
 import Freedom from './sections/Freedom.jsx';
+import Learning from './sections/Learning.jsx';
 import Overview from './sections/Overview.jsx';
 import Routine from './sections/Routine.jsx';
 import './App.css';
@@ -14,6 +15,7 @@ const SECTIONS = [
   { id: 'body', label: 'Body', icon: '💪' },
   { id: 'freedom', label: 'Freedom', icon: '🛡' },
   { id: 'routine', label: 'Routine', icon: '⏱' },
+  { id: 'learning', label: 'Learning', icon: '📚' },
 ];
 
 const IDS = SECTIONS.map((s) => s.id);
@@ -87,6 +89,7 @@ export default function App() {
         {section === 'body' && <Body />}
         {section === 'freedom' && <Freedom />}
         {section === 'routine' && <Routine />}
+        {section === 'learning' && <Learning />}
       </main>
     </div>
   );

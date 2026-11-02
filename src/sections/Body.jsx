@@ -767,6 +767,15 @@ export default function RebuildDashboard() {
                         : `planning rate, ${outlook.likely.pct}% a week`
                       }
                     />
+                    {naive ? (
+                      <FactTile
+                        label="at your pace"
+                        value={weeksLabel(naive.weeks)}
+                        tone="rb-down"
+                        sub={dateLabel(naive.date)}
+                        foot={`${naive.kgPerWeek} kg a week, your trend`}
+                      />
+                    ) : null}
                     <FactTile
                       label="what that asks of you"
                       value={`${outlook.likely.kgPerWeekNow} kg`}
@@ -862,9 +871,15 @@ export default function RebuildDashboard() {
                       />
                       {outlookPlot.showNaive && (
                         <Line
-                          type="linear" dataKey="naive" name="straight line (impossible)"
-                          stroke="#f43f5e" strokeWidth={1.5} strokeDasharray="2 4"
+                          type="linear" dataKey="naive" name={`your pace (${naive.kgPerWeek} kg/wk)`}
+                          stroke="#f43f5e" strokeWidth={2} strokeDasharray="4 4"
                           dot={false} activeDot={false} connectNulls
+                        />
+                      )}
+                      {outlookPlot.naiveX != null && (
+                        <ReferenceDot
+                          x={outlookPlot.naiveX} y={goal.goal} r={5} fill="#f43f5e" stroke="#020617" strokeWidth={2}
+                          label={{ value: shortLabel(outlookPlot.naiveDate), fill: "#f43f5e", fontSize: 11, position: "top" }}
                         />
                       )}
                       <Line

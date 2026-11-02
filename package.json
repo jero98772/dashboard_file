@@ -9,9 +9,14 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "start": "node server/index.js",
-    "seed": "node scripts/seed-weight.mjs"
+    "seed": "node scripts/seed-weight.mjs",
+    "build:pages": "VITE_STATIC=1 vite build"
   },
   "dependencies": {
+    "d3-array": "^3.2.4",
+    "d3-format": "^3.1.2",
+    "d3-scale": "^4.0.2",
+    "d3-time-format": "^4.1.0",
     "lucide-react": "^1.47.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
