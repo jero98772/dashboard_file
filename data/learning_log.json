@@ -1,1 +1,29 @@
-{"columns":["id","date","time","topic","format","minutes","title","sample","created"],"rows":[{"id":"a0b1d183","date":"2026-10-22","time":"09:30","topic":"Quantum","format":"Conference","minutes":"120","title":"","sample":"false","created":"1792781231736"},{"id":"6dc238be","date":"2026-10-22","time":"11:30","topic":"Quantum","format":"Conference","minutes":"60","title":"","sample":"false","created":"1792781240492"},{"id":"35459ff7","date":"2026-10-23","time":"14:00","topic":"Quantum","format":"Conference","minutes":"60","title":"","sample":"false","created":"1792781262987"},{"id":"7afa1048","date":"2026-10-23","time":"19:00","topic":"LLM","format":"Video","minutes":"30","title":"","sample":"false","created":"1792781310391"},{"id":"5133c5af","date":"2026-10-08","time":"08:00","topic":"LLVM","format":"Script","minutes":"30","title":"","sample":"false","created":"1792781337151"},{"id":"332b1e44","date":"2026-10-21","time":"13:00","topic":"Build a company","format":"Article","minutes":"60","title":"","sample":"false","created":"1792781413399"}]}
+id,date,time,topic,format,minutes,title,sample,created
+a0b1d183,2026-10-22,09:30,Quantum,Conference,120,,false,1792781231736
+6dc238be,2026-10-22,11:30,Quantum,Conference,60,,false,1792781240492
+35459ff7,2026-10-23,14:00,Quantum,Conference,60,,false,1792781262987
+7afa1048,2026-10-23,19:00,LLM,Video,30,,false,1792781310391
+5133c5af,2026-10-08,08:00,LLVM,Script,30,,false,1792781337151
+332b1e44,2026-10-21,13:00,Build a company,Article,60,,false,1792781413399
+2b0aacd0,2026-10-27,15:36,LLVM,Video,30,,false,1793133378681
+292d175d,2026-10-26,15:36,LLM,Video,120,standorfd llm 3,false,1793133416923
+3544954a,2026-10-27,15:36,LLM,Video,120,standford llm 4,false,1793133438035
+22fba8c9,2026-10-26,19:37,Open-source integration,Article,60,pytorch,false,1793133488201
+9868f913,2026-10-26,18:38,LLVM,Article,15,llvm vs mlir,false,1793133513277
+f30eb5f9,2026-10-26,18:38,LLVM,Article,30,pretraining,false,1793133550278
+50d2730b,2026-10-26,17:39,LLM,Article,30,sebastian rashan,false,1793133603103
+e1ac64b2,2026-10-28,07:44,Thermodynamics,Article,30,,false,1793198679584
+439d83ca,2026-10-28,06:44,LLM,Video,60,,false,1793198698534
+ab27fc3b,2026-10-28,13:56,Programming semantics,Video,30,,false,1793213799236
+7a9cc411,2026-10-28,13:56,LLVM,Video,30,,false,1793213808986
+c72f48ea,2026-10-29,10:30,LLVM,Video,30,,false,1793287813710
+860e22fc,2026-10-30,06:30,Photonics,Video,150,,false,1793376306434
+0418e5d3,2026-10-30,09:30,LLVM,Video,20,,false,1793376378666
+5c4345f8,2026-10-31,07:48,Statistics and probability,Video,30,,false,1793465324598
+0698efcb,2026-10-31,08:48,Statistics and probability,Video,60,,false,1793465333284
+af0f117c,2026-10-31,15:28,Other computing paradigms,Video,70,Neuromorphic computer,false,1793478638528
+f1bbf2b9,2026-10-31,16:56,Thermodynamics,Script,15,Thermodinamic computer simulator,false,1793483796275
+98f99624,2026-11-01,07:05,Programming,Video,25,Desing Factory,false,1793549193119
+4a8ef978,2026-11-01,11:06,Programming semantics,Video,25,lean tutorials,false,1793549214817
+f03a0010,2026-11-01,11:07,Thermodynamics,Article,20,Thermodinamic linear algebra,false,1793549259691
+4e27f65c,2026-11-01,08:08,Statistics and probability,Video,20,Distributions,false,1793549311118
